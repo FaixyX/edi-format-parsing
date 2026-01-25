@@ -55,7 +55,7 @@ def preprocess_edi(input_file, output_file):
 
 
 if __name__ == "__main__":
-    INPUT_EDI = "CHA075331-R20251220-27.edi"
+    INPUT_EDI = "CHA075331-R20251221-05.edi"
     FIXED_EDI = "fixed.edi"
     OUTPUT_JSON = "output.json"
 
@@ -77,69 +77,112 @@ def parse_277_manual(edi_file):
         "npi": None,
         "patients": []
     }
+
     current_patient = None
+    hl_level = None
 
+    # 🔹 CLAIM-level buffers (for REF & AMT before HL*PT)
+    claim_amount = None
+    internal_claim_id = None
+    external_claim_id = None
+    tob = None
+
+    # Read and split segments
     with open(edi_file, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    # Split by ~
-    segments = [s.strip() for s in content.split("~") if s.strip()]
+        segments = [s.strip() for s in f.read().replace("\n", "").split("~") if s.strip()]
 
     for seg in segments:
         parts = seg.split("*")
         sid = parts[0]
 
-        # Header date
+        # ---------------- HEADER ----------------
         if sid == "DTP" and parts[1] == "050":
             result["header_date"] = format_date(parts[3])
 
-        # Provider NPI
         if sid == "NM1" and parts[1] == "85":
             result["npi"] = parts[9]
 
-        # New patient
-        if sid == "HL" and len(parts) > 3 and parts[3] == "PT":
-            current_patient = {
-                "name": None,
-                "member_id": None,
-                "trace_number": None,
-                "service_dates": None,
-                "amount": None,
-                "status": None,
-                "claim_id": None,
-                "tob": None
-            }
-            result["patients"].append(current_patient)
+        # ---------------- CLAIM LEVEL ----------------
+        if sid == "AMT" and parts[1] == "YU":
+            claim_amount = parts[2]
+
+        # ---------------- REF handling ----------------
+        if sid == "REF":
+            qualifier = parts[1]
+            value = parts[2]
+
+            if current_patient:
+                # Attach directly to current patient (after HL*PT)
+                if qualifier == "1K":       # CAR
+                    current_patient["internal_claim_id"] = value
+                elif qualifier == "D9":     # Payer Claim ID
+                    current_patient["claim_id"] = f"[{value}]"
+                elif qualifier == "BLT":    # Type of Bill
+                    current_patient["tob"] = f"TOB: {value}"
+            else:
+                # Buffer for claim-level data before HL*PT
+                if qualifier == "1K":
+                    internal_claim_id = value
+                elif qualifier == "D9":
+                    external_claim_id = value
+                elif qualifier == "BLT":
+                    tob = f"TOB: {value}"
+
+        # ---------------- HL segment ----------------
+        if sid == "HL":
+            hl_level = parts[3] if len(parts) > 3 else None
+
+            if hl_level == "PT":
+                # 🔗 build claim_id once PT starts
+                claim_id = None
+                if internal_claim_id and external_claim_id:
+                    claim_id = f"{internal_claim_id}[{external_claim_id}]"
+                elif external_claim_id:
+                    claim_id = f"[{external_claim_id}]"
+
+                current_patient = {
+                    "name": None,
+                    "member_id": None,
+                    "service_dates": None,
+                    "amount": claim_amount,
+                    "status": None,
+                    "claim_id": claim_id,
+                    "tob": tob
+                }
+
+                result["patients"].append(current_patient)
+
             continue
 
         if not current_patient:
             continue
 
-        # Patient name & member ID
+        # ---------------- PATIENT INFO ----------------
         if sid == "NM1" and parts[1] == "QC":
-            current_patient["name"] = f"{parts[3]}, {parts[4]}"
-            current_patient["member_id"] = parts[9]
+            last_name = parts[3] if len(parts) > 3 else None
+            first_name = parts[4] if len(parts) > 4 else None
+            current_patient["name"] = f"{last_name}, {first_name}" if last_name or first_name else None
+            current_patient["member_id"] = parts[9] if len(parts) > 9 else None
 
-        # Trace number
-        if sid == "TRN" and parts[1] == "2":
-            current_patient["trace_number"] = parts[2]
 
-        # Claim status + amount
+        # Status
         if sid == "STC":
-            current_patient["amount"] = parts[5] if len(parts) > 5 else None
-            current_patient["status"] = f"ACCEPTED {parts[3]} [{parts[1]}]"
-
-        # Claim ID
-        if sid == "REF" and parts[1] == "1K":
-            current_patient["claim_id"] = parts[2] if len(parts) > 2 else None
-
-        # TOB
-        if sid == "REF" and parts[1] == "BLT":
-            current_patient["tob"] = f"TOB: {parts[2]}" if len(parts) > 2 else None
+            code = parts[1]
+            status_date = parts[2] if len(parts) > 2 else None
+            readable = "ACCEPTED" if code.startswith("A") else "NOT ACCEPTED"
+            current_patient["status"] = f"{readable} {status_date} [{code}]"
 
         # Service dates
         if sid == "DTP" and parts[1] == "472":
-            current_patient["service_dates"] = parts[3] if len(parts) > 3 else None
+            current_patient["service_dates"] = parts[3]
+    # 🔗 Merge internal_claim_id into claim_id
+    for p in result["patients"]:
+        if p.get("internal_claim_id"):
+            suffix = p.get("claim_id") or ""
+            p["claim_id"] = f"{p['internal_claim_id']}{suffix}"
+        # Remove the old internal_claim_id field
+        p.pop("internal_claim_id", None)
+
 
     return result
 
