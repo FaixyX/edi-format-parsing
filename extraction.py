@@ -1,5 +1,4 @@
 import json
-from pyx12.x12file import X12Reader
 from datetime import datetime
 
 def fix_isa_line(edi_path: str, fixed_path: str):
@@ -55,7 +54,7 @@ def preprocess_edi(input_file, output_file):
 
 
 if __name__ == "__main__":
-    INPUT_EDI = "CHA075331-R20251221-05.edi"
+    INPUT_EDI = "CHA075331-R20251220-28.edi"
     FIXED_EDI = "fixed.edi"
     OUTPUT_JSON = "output.json"
 
@@ -143,11 +142,12 @@ def parse_277_manual(edi_file):
                 current_patient = {
                     "name": None,
                     "member_id": None,
+                    "pt_claim": None,
                     "service_dates": None,
                     "amount": claim_amount,
-                    "status": None,
                     "claim_id": claim_id,
-                    "tob": tob
+                    "status": None,
+                    "tob": tob,
                 }
 
                 result["patients"].append(current_patient)
@@ -156,6 +156,12 @@ def parse_277_manual(edi_file):
 
         if not current_patient:
             continue
+
+        # ---------------- PT-LEVEL TRN ----------------
+        if sid == "TRN" and parts[1] == "2":
+            current_patient["pt_claim"] = parts[2]
+            continue
+
 
         # ---------------- PATIENT INFO ----------------
         if sid == "NM1" and parts[1] == "QC":
