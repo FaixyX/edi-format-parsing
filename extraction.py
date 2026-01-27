@@ -54,7 +54,7 @@ def preprocess_edi(input_file, output_file):
 
 
 if __name__ == "__main__":
-    INPUT_EDI = "CHA075331-R20251220-28.edi"
+    INPUT_EDI = "CHA075331-R20251221-06.edi"
     FIXED_EDI = "fixed.edi"
     OUTPUT_JSON = "output.json"
 
@@ -144,7 +144,7 @@ def parse_277_manual(edi_file):
                     "member_id": None,
                     "pt_claim": None,
                     "service_dates": None,
-                    "amount": claim_amount,
+                    "amount": None,
                     "claim_id": claim_id,
                     "status": None,
                     "tob": tob,
@@ -175,8 +175,11 @@ def parse_277_manual(edi_file):
         if sid == "STC":
             code = parts[1]
             status_date = parts[2] if len(parts) > 2 else None
-            readable = "ACCEPTED" if code.startswith("A") else "NOT ACCEPTED"
+            pt_amount = parts[-1] if parts[-1] not in ("", None) else None
+            readable = "ACCEPTED" if code.startswith("A2") else "Error"
             current_patient["status"] = f"{readable} {status_date} [{code}]"
+            pt_amount = parts[-1].strip() if parts[-1].strip() else None
+            current_patient["amount"] = pt_amount
 
         # Service dates
         if sid == "DTP" and parts[1] == "472":
@@ -191,7 +194,7 @@ def parse_277_manual(edi_file):
 
 
     return result
-
+    
 # Main
 if __name__ == "__main__":
     INPUT_EDI = "fixed.edi"
