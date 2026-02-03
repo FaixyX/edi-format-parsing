@@ -1,0 +1,36 @@
+# fly.toml app configuration file generated for billup-worker on 2025-12-07T00:21:57+01:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'billup-worker'
+primary_region = 'lax'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[processes]
+  worker = '/app/venv/bin/python -m app.worker_server'
+
+[http_service]
+  internal_port = 8081
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 7
+  processes = ['worker']
+
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/health'
+
+[[vm]]
+  memory = '4gb'  # Dedicated CPU machines support up to 32GB
+  cpu_kind = 'shared'
+  cpus = 4
+
+
+
