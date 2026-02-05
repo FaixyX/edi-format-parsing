@@ -245,28 +245,47 @@ def retry_monitoring_entry(task_id: str, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(task)
 
-        # Queue Dramatiq task with the same task_id
-        from app.tasks.edi_billing_tasks import enqueue_edi_billing_file_task
-
-        # Get decrypted agency credentials for the worker
-        decrypted_creds = get_agency_decrypted_credentials(agency)
-
-        task_data = {
-            "task_id": task.task_id,  # Use the same task_id
-            "agency_id": str(agency.id),
-            "agency_link": decrypted_creds["link"],
-            "agency_username": decrypted_creds["username"],
-            "agency_password": decrypted_creds["password"],
-            "npi": npi,
-            "filename": filename,
-            "bank_check": params.get("bank_check"),
-        }
-
-        # Enqueue task with configurable delay and retries
-        enqueue_edi_billing_file_task(task_data)
-        logger.info(
-            f"Retried task {task_id} (same task, reset to pending) for agency {agency.name}"
-        )
+        # Detect transaction type and queue appropriate worker
+        transaction_type = params.get("transaction_type")
+        
+        if transaction_type == "277":
+            # Queue 277-specific worker
+            from app.tasks.edi_277_billing_tasks import enqueue_277_billing_file_task
+            
+            task_data = {
+                "task_id": task.task_id,
+                "npi": npi,
+                "filename": filename,
+                "header_date": params.get("ra_date"),  # 277 uses ra_date for header_date
+            }
+            
+            enqueue_277_billing_file_task(task_data)
+            logger.info(
+                f"Retried 277 task {task_id} (same task, reset to pending) for agency {agency.name}"
+            )
+        else:
+            # Queue 837/835 worker (default)
+            from app.tasks.edi_billing_tasks import enqueue_edi_billing_file_task
+            
+            # Get decrypted agency credentials for the worker
+            decrypted_creds = get_agency_decrypted_credentials(agency)
+            
+            task_data = {
+                "task_id": task.task_id,  # Use the same task_id
+                "agency_id": str(agency.id),
+                "agency_link": decrypted_creds["link"],
+                "agency_username": decrypted_creds["username"],
+                "agency_password": decrypted_creds["password"],
+                "npi": npi,
+                "filename": filename,
+                "bank_check": params.get("bank_check"),
+            }
+            
+            # Enqueue task with configurable delay and retries
+            enqueue_edi_billing_file_task(task_data)
+            logger.info(
+                f"Retried 837/835 task {task_id} (same task, reset to pending) for agency {agency.name}"
+            )
 
         return {
             "ok": True,

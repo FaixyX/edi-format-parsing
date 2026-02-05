@@ -22,6 +22,9 @@ from app.broker import broker
 from app.tasks.edi_billing_tasks import (
     process_edi_billing_file_task,
 )
+from app.tasks.edi_277_billing_tasks import (
+    process_277_billing_file,
+)
 from app.core.logging_config import setup_logging
 
 # Setup logging configuration for the worker server

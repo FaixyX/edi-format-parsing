@@ -54,6 +54,8 @@ class EDIPatientData(BaseModel):
     service_period_start: Optional[str] = None  # YYYY-MM-DD format
     service_period_end: Optional[str] = None  # YYYY-MM-DD format
     claim_received_date: Optional[str] = None  # YYYY-MM-DD format
+    # 277-specific fields (claim status response)
+    extra: Optional[dict] = None  # Contains: claim_id, status, tob, service_dates
 
 
 class MonitoringEntryLight(BaseModel):

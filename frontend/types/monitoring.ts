@@ -35,6 +35,13 @@ export interface EDIPatientData {
     service_period_start?: string; // YYYY-MM-DD format
     service_period_end?: string; // YYYY-MM-DD format
     claim_received_date?: string; // YYYY-MM-DD format
+    // 277-specific fields (claim status response)
+    extra?: {
+        claim_id?: string; // Claim ID reference (e.g., "22535600585207CAR [01NS25337000V]")
+        status?: string; // Claim status (e.g., "ACCEPTED 20251220 [A2/20/PR]")
+        tob?: string; // Type of Bill (e.g., "TOB: 329")
+        service_dates?: string; // Service date range (e.g., "20251005-20251028")
+    };
 }
 
 export interface MonitoringEntryLight {

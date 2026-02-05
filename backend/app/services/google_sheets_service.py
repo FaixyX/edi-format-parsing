@@ -20,9 +20,11 @@ logger = logging.getLogger(__name__)
 ADMIN_SOURCE_OF_TRUTH_SPREADSHEET_NAME = "BillUp Admin Source of Truth"
 
 # Rate limiting constants
-MAX_RETRIES = 8
+# Google Sheets API limits: 300 read and 300 write requests per minute
+# Exponential backoff: 7 retries starting from 1 second, max 128 seconds
+MAX_RETRIES = 7  # 7 retries = 8 total attempts (1 initial + 7 retries)
 INITIAL_RETRY_DELAY = 1  # seconds
-MAX_RETRY_DELAY = 80  # seconds
+MAX_RETRY_DELAY = 128  # seconds (maximum backoff time)
 
 
 class GoogleSheetsService:
@@ -1952,4 +1954,171 @@ class GoogleSheetsService:
                 "success": False,
                 "message": str(e),
                 "rows_added": 0,
+            }
+
+    @staticmethod
+    def update_277_patient_data_in_sheet(
+        db: Session,
+        npi: str,
+        header_date: str,
+        patients: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """
+        Update Google Sheets with 277 claim status patient data.
+        
+        For 277 files:
+        1. Find spreadsheet with name containing the NPI value
+        2. Use the first sheet tab in that spreadsheet
+        3. Find the last entered line in the sheet
+        4. Skip a row
+        5. Put the header_date in column A
+        6. Skip one more row
+        7. Start entering patient values row by row
+        
+        Args:
+            db: Database session
+            npi: Agency NPI (e.g., "1750587804")
+            header_date: Date from 277 header (YYYY-MM-DD format)
+            patients: List of patient dictionaries with:
+                - patient_number (or member_id)
+                - claim_number (or pt_claim)
+                - patient_name (or name)
+                - claim_amount (or amount)
+                - extra: dict with claim_id, status, tob, service_dates
+                
+        Returns: Dictionary with update statistics
+        """
+        try:
+            # Find spreadsheet by name pattern (spreadsheet name, not sheet tab name)
+            name_pattern = str(npi)
+            spreadsheet_info = GoogleSheetsService.find_spreadsheet_by_name_pattern(
+                db, name_pattern
+            )
+            
+            if not spreadsheet_info:
+                logger.warning(
+                    f"No spreadsheet found with NPI [{npi}]"
+                )
+                return {
+                    "success": False,
+                    "message": f"No spreadsheet found with NPI [{npi}]",
+                    "updated": 0,
+                    "skipped": 0,
+                    "not_found": 0,
+                    "total": len(patients),
+                }
+            
+            spreadsheet_id = spreadsheet_info["spreadsheet_id"]
+            sheet_name = spreadsheet_info["sheet_name"]
+            
+            logger.info(
+                f"Found spreadsheet {spreadsheet_id} with sheet '{sheet_name}' for NPI {npi}"
+            )
+            
+            # Read the entire sheet to find the last entered line
+            range_name = f"{sheet_name}!A:Z"
+            sheet_values = GoogleSheetsService.read_sheet(db, spreadsheet_id, range_name)
+            
+            # Find last non-empty row
+            last_row = 0
+            if sheet_values:
+                for i, row in enumerate(sheet_values):
+                    # Check if row has any non-empty cells
+                    if any(cell for cell in row if cell):
+                        last_row = i + 1  # 1-indexed
+            
+            logger.info(f"Last entered row in sheet: {last_row}")
+            
+            # Prepare rows to append:
+            # 1. Empty row (skip a row)
+            # 2. Date row in column A
+            # 3. Empty row (skip another row)
+            # 4. Patient data rows
+            
+            rows_to_append = []
+            
+            # Empty row
+            rows_to_append.append([])
+            
+            # Date row (column A only) - prefix with ' to force text format
+            # This prevents Google Sheets from converting "12/22/2025" to serial number 46013
+            date_value = f"'{header_date}" if header_date else ""
+            rows_to_append.append([date_value])
+            
+            # Empty row
+            rows_to_append.append([])
+            
+            # Patient data rows
+            # Columns: A=Name, B=Member ID, C=Claim#, D=Service Dates, E=Amount, F=Claim ID, G=Status, H=TOB
+            for patient in patients:
+                patient_number = patient.get("patient_number") or patient.get("mid") or ""
+                claim_number = patient.get("claim_number") or patient.get("pt_claim") or ""
+                patient_name = patient.get("patient_name") or patient.get("name") or ""
+                claim_amount = patient.get("claim_amount") or patient.get("amount") or 0
+                
+                # Get extra 277 fields
+                extra = patient.get("extra", {})
+                claim_id = extra.get("claim_id", "")
+                status = extra.get("status", "")
+                tob = extra.get("tob", "")
+                service_dates = extra.get("service_dates", "")
+                
+                # Build row data in correct column order
+                row = [
+                    patient_name,       # Column A: Patient name (e.g., "GREWAL, JAMES")
+                    patient_number,     # Column B: Member ID (e.g., "7K11T84XX77")
+                    claim_number,       # Column C: Claim number (e.g., "141-1495")
+                    service_dates,      # Column D: Service dates (e.g., "20251005-20251028")
+                    claim_amount,       # Column E: Amount (e.g., "480.01")
+                    claim_id,           # Column F: Claim ID (e.g., "22535600585207CAR [01NS25337000V]")
+                    status,             # Column G: Status (e.g., "ACCEPTED 20251220 [A2/20/PR]")
+                    tob,                # Column H: Type of Bill (e.g., "TOB: 329")
+                ]
+                rows_to_append.append(row)
+            
+            # Append all rows to the sheet
+            if rows_to_append:
+                append_range = f"{sheet_name}!A:Z"
+                GoogleSheetsService.append_to_sheet(
+                    db=db,
+                    spreadsheet_id=spreadsheet_id,
+                    range_name=append_range,
+                    values=rows_to_append,
+                    value_input_option="USER_ENTERED",
+                )
+                
+                updated_count = len(patients)  # Number of actual patient rows
+                logger.info(
+                    f"Appended {updated_count} patient rows (plus 3 formatting rows) to sheet '{sheet_name}'"
+                )
+                
+                return {
+                    "success": True,
+                    "spreadsheet_id": spreadsheet_id,
+                    "sheet_name": sheet_name,
+                    "updated": updated_count,
+                    "skipped": 0,
+                    "not_found": 0,
+                    "total": len(patients),
+                }
+            else:
+                logger.warning(f"No patient data to append for NPI {npi}")
+                return {
+                    "success": False,
+                    "message": "No patient data available",
+                    "updated": 0,
+                    "skipped": 0,
+                    "not_found": 0,
+                    "total": len(patients),
+                }
+                
+        except Exception as e:
+            logger.error(f"Failed to update 277 patient data in sheet: {str(e)}")
+            return {
+                "success": False,
+                "message": str(e),
+                "updated": 0,
+                "skipped": 0,
+                "not_found": 0,
+                "total": len(patients) if patients else 0,
             }

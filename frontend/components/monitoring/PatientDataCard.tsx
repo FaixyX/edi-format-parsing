@@ -11,6 +11,7 @@ interface PatientDataCardProps {
     patient: EDIPatientData;
     raDate?: string;
     index: number;
+    fileFormat?: "837" | "277"; // To determine which fields to show
 }
 
 /**
@@ -22,7 +23,10 @@ export function PatientDataCard({
     patient,
     raDate,
     index,
+    fileFormat = "837", // Default to 837 for backward compatibility
 }: PatientDataCardProps) {
+    const is277 = fileFormat === "277";
+    
     // Use claim amount from patient data (already matched and stored by backend)
     const claimAmount = patient.claim_amount;
     const hasClaimAmount = claimAmount != null && claimAmount !== 0;
@@ -77,7 +81,8 @@ export function PatientDataCard({
                             <span>
                                 {patient.patient_name || `Patient ${index + 1}`}
                             </span>
-                            {patient.patient_number && patient.claim_number && (
+                            {/* For 837 files only: show patient_number - claim_number in header */}
+                            {!is277 && patient.patient_number && patient.claim_number && (
                                 <span className="text-muted-foreground font-normal">
                                     <CopyableText
                                         text={`${patient.patient_number}-${patient.claim_number}`}
@@ -90,37 +95,119 @@ export function PatientDataCard({
                     </div>
                 </div>
 
-                {/* Patient identifiers */}
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                    {patient.mid && (
-                        <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground">MID:</span>
-                        <CopyableText
-                            text={`${patient.mid}`}
-                            displayText={`${patient.mid}`}
-                            className="font-medium"
-                        />
-                      </div>
-                    )}
-                    {patient.service_period_start &&
-                        patient.service_period_end && (
-                            <div className="text-sm">
-                                <span className="text-muted-foreground">
-                                    Service Period:
-                                </span>{" "}
-                                <span className="font-medium">
-                                    {new Date(
-                                        patient.service_period_start +
-                                            "T00:00:00"
-                                    ).toLocaleDateString()}{" "}
-                                    -{" "}
-                                    {new Date(
-                                        patient.service_period_end + "T00:00:00"
-                                    ).toLocaleDateString()}
-                                </span>
+                {/* Patient identifiers - Different layout for 277 vs 837 */}
+                {!is277 ? (
+                    // 837 files: Original layout
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                        {patient.mid && (
+                            <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground">MID:</span>
+                            <CopyableText
+                                text={`${patient.mid}`}
+                                displayText={`${patient.mid}`}
+                                className="font-medium"
+                            />
+                          </div>
+                        )}
+                        {patient.service_period_start &&
+                            patient.service_period_end && (
+                                <div className="text-sm">
+                                    <span className="text-muted-foreground">
+                                        Service Period:
+                                    </span>{" "}
+                                    <span className="font-medium">
+                                        {new Date(
+                                            patient.service_period_start +
+                                                "T00:00:00"
+                                        ).toLocaleDateString()}{" "}
+                                        -{" "}
+                                        {new Date(
+                                            patient.service_period_end + "T00:00:00"
+                                        ).toLocaleDateString()}
+                                    </span>
+                                </div>
+                            )}
+                    </div>
+                ) : (
+                    // 277 files: Show all extracted fields
+                    <div className="space-y-3 text-sm">
+                        {/* Row 1: MID and Claim Number */}
+                        <div className="grid grid-cols-2 gap-4">
+                            {patient.mid && (
+                                <div>
+                                    <span className="text-muted-foreground">Member ID (MID):</span>{" "}
+                                    <CopyableText
+                                        text={patient.mid}
+                                        displayText={patient.mid}
+                                        className="font-medium"
+                                    />
+                                </div>
+                            )}
+                            {patient.claim_number && (
+                                <div>
+                                    <span className="text-muted-foreground">Claim #:</span>{" "}
+                                    <CopyableText
+                                        text={patient.claim_number}
+                                        displayText={patient.claim_number}
+                                        className="font-medium"
+                                    />
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* Row 2: Service Dates and Amount */}
+                        <div className="grid grid-cols-2 gap-4">
+                            {patient.extra?.service_dates && (
+                                <div>
+                                    <span className="text-muted-foreground">Service Dates:</span>{" "}
+                                    <span className="font-medium">
+                                        {patient.extra.service_dates}
+                                    </span>
+                                </div>
+                            )}
+                            {patient.claim_amount != null && patient.claim_amount !== 0 && (
+                                <div>
+                                    <span className="text-muted-foreground">Amount:</span>{" "}
+                                    <span className="font-medium text-green-600">
+                                        ${patient.claim_amount.toFixed(2)}
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* Row 3: Claim ID (full width) */}
+                        {patient.extra?.claim_id && (
+                            <div>
+                                <span className="text-muted-foreground">Claim ID:</span>{" "}
+                                <CopyableText
+                                    text={patient.extra.claim_id}
+                                    displayText={patient.extra.claim_id}
+                                    className="font-medium"
+                                />
                             </div>
                         )}
-                </div>
+                        
+                        {/* Row 4: Status and TOB */}
+                        <div className="grid grid-cols-2 gap-4">
+                            {patient.extra?.status && (
+                                <div>
+                                    <span className="text-muted-foreground">Status:</span>{" "}
+                                    <span className="font-medium text-green-600">
+                                        {patient.extra.status}
+                                    </span>
+                                </div>
+                            )}
+                            {patient.extra?.tob && (
+                                <div>
+                                    <span className="text-muted-foreground">Type of Bill:</span>{" "}
+                                    <span className="font-medium">
+                                        {patient.extra.tob}
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
 
                 {/* Dates - RA Date removed from cards as it's the same for all patients */}
                 {/* Claim Received - Hidden per user request, may be added back in the future */}
@@ -141,7 +228,8 @@ export function PatientDataCard({
 
                 {/* Service period */}
 
-                {/* Financial data */}
+                {/* Financial data - 837 files only */}
+                {!is277 && (
                 <div
                     className={`grid grid-cols-4 gap-4 pt-2 border-t ${
                         isValid === true
@@ -213,9 +301,10 @@ export function PatientDataCard({
                         </div>
                     </div>
                 </div>
+                )}
 
-                {/* Validation error if any */}
-                {validationError && (
+                {/* Validation error if any (837 only) */}
+                {!is277 && validationError && (
                     <div className="mt-2 flex items-start gap-2 text-sm text-red-600 dark:text-red-400">
                         <AlertCircle className="h-4 w-4 mt-0.5" />
                         <span>{validationError}</span>
@@ -231,6 +320,7 @@ interface PatientDataListProps {
     validationResults?: PatientValidationResult[];
     raDate?: string;
     showSummary?: boolean;
+    fileFormat?: "837" | "277"; // To determine which fields to show
 }
 
 /**
@@ -241,6 +331,7 @@ export function PatientDataList({
     validationResults = [],
     raDate,
     showSummary = true,
+    fileFormat = "837",
 }: PatientDataListProps) {
     const [searchQuery, setSearchQuery] = useState("");
     console.log("validation results", validationResults);
@@ -324,6 +415,7 @@ export function PatientDataList({
                                 patient={patient}
                                 raDate={raDate}
                                 index={index}
+                                fileFormat={fileFormat}
                             />
                         );
                     })}
@@ -337,55 +429,79 @@ export function PatientDataList({
                 </div>
             )}
 
-            {/* Summary totals */}
+            {/* Summary totals - Different for 277 vs 837 */}
             {showSummary && filteredPatients.length > 1 && (
                 <div className="mt-4 p-4 rounded-lg border bg-primary/5">
-                    <div className="grid grid-cols-3 gap-4">
-                        <div>
-                            <div className="text-xs text-muted-foreground mb-1">
-                                Total Claim
+                    {fileFormat === "277" ? (
+                        // 277 files: Show only total amount
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <div className="text-xs text-muted-foreground mb-1">
+                                    Total Amount
+                                </div>
+                                <div className="text-lg font-bold text-green-600">
+                                    {hasAnyClaimAmount ? (
+                                        `$${totalClaim.toFixed(2)}`
+                                    ) : (
+                                        <span className="text-muted-foreground">
+                                            N/A
+                                        </span>
+                                    )}
+                                </div>
                             </div>
-                            <div className="text-lg font-bold">
-                                {hasAnyClaimAmount ? (
-                                    `$${totalClaim.toFixed(2)}`
-                                ) : (
-                                    <span className="text-muted-foreground">
-                                        N/A
-                                    </span>
-                                )}
-                            </div>
-                        </div>
-                        <div>
-                            <div className="text-xs text-muted-foreground mb-1">
-                                Total Paid
-                            </div>
-                            <div className="text-lg font-bold">
-                                ${totalPaid.toFixed(2)}
+                            <div className="text-sm text-muted-foreground">
+                                {filteredPatients.length} patient{filteredPatients.length !== 1 ? 's' : ''}
                             </div>
                         </div>
-                        <div>
-                            <div className="text-xs text-muted-foreground mb-1">
-                                Total Difference
+                    ) : (
+                        // 837 files: Show claim/paid/difference summary
+                        <div className="grid grid-cols-3 gap-4">
+                            <div>
+                                <div className="text-xs text-muted-foreground mb-1">
+                                    Total Claim
+                                </div>
+                                <div className="text-lg font-bold">
+                                    {hasAnyClaimAmount ? (
+                                        `$${totalClaim.toFixed(2)}`
+                                    ) : (
+                                        <span className="text-muted-foreground">
+                                            N/A
+                                        </span>
+                                    )}
+                                </div>
                             </div>
-                            <div
-                                className={`text-lg font-bold ${
-                                    hasAnyClaimAmount
-                                        ? totalDifference >= 0
-                                            ? "text-green-600"
-                                            : "text-red-600"
-                                        : "text-muted-foreground"
-                                }`}
-                            >
-                                {hasAnyClaimAmount ? (
-                                    `$${totalDifference.toFixed(2)}`
-                                ) : (
-                                    <span className="text-muted-foreground">
-                                        N/A
-                                    </span>
-                                )}
+                            <div>
+                                <div className="text-xs text-muted-foreground mb-1">
+                                    Total Paid
+                                </div>
+                                <div className="text-lg font-bold">
+                                    ${totalPaid.toFixed(2)}
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-muted-foreground mb-1">
+                                    Total Difference
+                                </div>
+                                <div
+                                    className={`text-lg font-bold ${
+                                        hasAnyClaimAmount
+                                            ? totalDifference >= 0
+                                                ? "text-green-600"
+                                                : "text-red-600"
+                                            : "text-muted-foreground"
+                                    }`}
+                                >
+                                    {hasAnyClaimAmount ? (
+                                        `$${totalDifference.toFixed(2)}`
+                                    ) : (
+                                        <span className="text-muted-foreground">
+                                            N/A
+                                        </span>
+                                    )}
+                                </div>
                             </div>
                         </div>
-                    </div>
+                    )}
                 </div>
             )}
         </div>

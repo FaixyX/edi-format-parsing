@@ -185,14 +185,21 @@ async def upload_277_billing_files(
                 }
             )
 
+            # Get the configured max retries for EDI billing tasks
+            from app.services.system_configuration_service import SystemConfigurationService
+            
+            configured_max_retries = (
+                SystemConfigurationService.get_edi_billing_max_retries(db)
+            )
+
             task_id = str(uuid.uuid4())
             bg_task = BackgroundTask(
                 task_id=task_id,
                 agency_id=agency.id,
-                status="completed",
+                status="pending",  # Changed from "completed" to "pending" for worker processing
                 edi_file_data=encrypted_edi,
                 edi_filename=file.filename,
-                max_retries=0,
+                max_retries=configured_max_retries,
                 params=encrypted_params,
                 result_data=None,
                 error_message=None,
@@ -201,8 +208,25 @@ async def upload_277_billing_files(
             db.commit()
             db.refresh(bg_task)
 
-            # Ensure the agency creds can be decrypted (keeps parity with 873 flow)
-            _ = get_agency_decrypted_credentials(agency)
+            logger.info(
+                f"277 EDI file stored in database for task {bg_task.task_id}: {file.filename}"
+            )
+
+            # Queue 277 worker task
+            from app.tasks.edi_277_billing_tasks import enqueue_277_billing_file_task
+
+            task_data = {
+                "task_id": bg_task.task_id,
+                "npi": npi,
+                "filename": file.filename,
+                "header_date": header_date,
+            }
+
+            # Enqueue task for background processing
+            enqueue_277_billing_file_task(task_data)
+            logger.info(
+                f"Queued 277 processing task {bg_task.task_id} for agency {agency.name}"
+            )
 
             results.append(
                 {

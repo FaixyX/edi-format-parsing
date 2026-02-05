@@ -423,7 +423,8 @@ export function ViewMonitoringEntrySheet({
                                     icon={RefreshCw}
                                     value={`${displayEntry.retry_count} / ${displayEntry.max_retries}`}
                                 />
-                                {displayEntry.ra_date && (
+                                {/* Only show RA Date for 837 files (payment files), not 277 (claim status) */}
+                                {displayEntry.ra_date && displayEntry.edi_info?.transaction_type !== "277" && (
                                     <InfoField
                                         title="RA Date"
                                         icon={Calendar}
@@ -476,7 +477,7 @@ export function ViewMonitoringEntrySheet({
                             <Separator className="my-6" />
                             <div className="mt-4">
                                 <CollapsibleSection
-                                    title="Patient Data & Validation"
+                                    title={displayEntry.edi_info?.transaction_type === "277" ? "Patient Data" : "Patient Data & Validation"}
                                     isOpen={ediPatientsOpen}
                                     onOpenChange={setEdiPatientsOpen}
                                 >
@@ -484,6 +485,7 @@ export function ViewMonitoringEntrySheet({
                                         patients={displayEntry.edi_patients}
                                         raDate={displayEntry.ra_date}
                                         showSummary={true}
+                                        fileFormat={displayEntry.edi_info?.transaction_type === "277" ? "277" : "837"}
                                     />
                                 </CollapsibleSection>
                             </div>

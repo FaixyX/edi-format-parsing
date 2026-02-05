@@ -221,7 +221,11 @@ def parse_277_manual(edi_file):
     for p in result["patients"]:
         if p.get("internal_claim_id"):
             suffix = p.get("claim_id") or ""
-            p["claim_id"] = f"{p['internal_claim_id']}{suffix}"
+            # Add space before suffix if suffix exists and doesn't start with space
+            if suffix and not suffix.startswith(" "):
+                p["claim_id"] = f"{p['internal_claim_id']} {suffix}"
+            else:
+                p["claim_id"] = f"{p['internal_claim_id']}{suffix}"
         # Remove the old internal_claim_id field
         p.pop("internal_claim_id", None)
 

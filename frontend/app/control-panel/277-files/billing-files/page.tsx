@@ -65,11 +65,10 @@ export default function Format2BillingFilesPage() {
     const [retryingIndex, setRetryingIndex] = useState<number | null>(null);
     const [deletingIndex, setDeletingIndex] = useState<number | null>(null);
 
-    // Load persisted results on mount
-    useEffect(() => {
-        // Results are already loaded from localStorage via Zustand persist
-        // We just need to ensure the component re-renders when store updates
-    }, []);
+    // Load persisted results on mount and validate they still exist
+    // NOTE: Auto-cleanup removed - files should only be removed when:
+    // 1. User explicitly deletes them from the upload page
+    // 2. Tasks are deleted from the dashboard (handled by handleDelete checking for 404)
 
     const validateFile = (file: File): string | null => {
         // Check file extension
@@ -365,11 +364,24 @@ export default function Format2BillingFilesPage() {
         try {
             if (result.task_id) {
                 // Task exists, delete it
-                await deleteMonitoringEntry(result.task_id);
-                toast.success("Task deleted successfully");
+                try {
+                    await deleteMonitoringEntry(result.task_id);
+                    toast.success("Task deleted successfully");
+                } catch (error: any) {
+                    // If task not found (404), it was already deleted elsewhere
+                    // Still remove from upload page to keep UI in sync
+                    if (error?.message?.includes("not found") || error?.message?.includes("404")) {
+                        toast.info("Task already deleted", {
+                            description: "Removing from upload results"
+                        });
+                    } else {
+                        // Re-throw other errors
+                        throw error;
+                    }
+                }
             }
 
-            // Remove from results
+            // Remove from results (even if task was already deleted)
             removeUploadResult(index);
 
             // Remove from failed files if it exists
@@ -732,7 +744,7 @@ export default function Format2BillingFilesPage() {
                                     or click to browse
                                 </p>
                                 <p className="text-xs text-muted-foreground mt-1">
-                                    EDI X12 835 files (.edi or .txt) • Max 10MB
+                                    EDI X12 277 files (.edi or .txt) • Max 10MB
                                     per file
                                 </p>
                             </div>
