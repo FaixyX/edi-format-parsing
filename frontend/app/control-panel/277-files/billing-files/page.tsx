@@ -32,8 +32,6 @@ import {
     deleteMonitoringEntry,
 } from "@/services/monitoringApi";
 
-const MAX_277_FILES_PER_REQUEST = 100;
-
 interface UploadResponse277 {
     total_files: number;
     successful: number;
@@ -183,15 +181,6 @@ export default function Format2BillingFilesPage() {
         clearSelectedFiles();
 
         try {
-            if (filesToUpload.length > MAX_277_FILES_PER_REQUEST) {
-                toast.error("Too many files", {
-                    description: `Maximum ${MAX_277_FILES_PER_REQUEST} files per upload. Please upload in smaller batches.`,
-                });
-                setSelectedFiles(filesToUpload);
-                setIsUploading(false);
-                return;
-            }
-
             const formData = new FormData();
             filesToUpload.forEach((file) => {
                 formData.append("files", file);
@@ -679,7 +668,7 @@ export default function Format2BillingFilesPage() {
                     <CardTitle>Upload 277 EDI Files</CardTitle>
                     <CardDescription>
                         Upload X12 EDI 277 response files (.edi or .txt). Each
-                        file is parsed and stored as a task. Max {MAX_277_FILES_PER_REQUEST} files per upload.
+                        file is parsed and stored as a task.
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
